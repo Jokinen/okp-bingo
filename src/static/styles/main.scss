@@ -2,4 +2,37 @@ $icon-font-path: '~bootstrap-sass/assets/fonts/bootstrap/';
 @import '~bootstrap-sass/assets/stylesheets/bootstrap/_mixins.scss';
 @import '~bootstrap-sass/assets/stylesheets/_bootstrap.scss';
 
-// can add Boostrap overrides, additional Sass/CSS below...
+.wrapper {
+  display: flex;
+  justify-content: center;
+  flex-direction: column;
+}
+
+.wrapper-row {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.bingo-board {
+  display: flex;
+  width: 500px;
+  height: 500px;
+  background: #999;
+  flex-flow: row wrap;
+}
+.bingo-square {
+  flex-grow: 1;
+  width: 20%;
+  height: 100px;
+
+  text-align: center;
+  line-height: 100px;
+
+  background: #eee;
+  box-shadow: inset 0 0 0 1px #fff;
+
+  &.selected {
+    background: cyan;
+  }
+}

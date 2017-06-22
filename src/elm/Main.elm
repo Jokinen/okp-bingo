@@ -5,9 +5,6 @@ import Html.Attributes exposing (..)
 import Html.Events exposing ( onClick )
 import Random exposing (Seed, step, int, initialSeed)
 
--- component import example
-import Components.Hello exposing ( hello )
-
 -- APP
 main : Program Never Model Msg
 main =
@@ -43,7 +40,8 @@ type alias Model =
     cellRandom: Int,
     availableEntries: Array (Int),
     entries: List Entry,
-    board: Board
+    board: Board,
+    loaded: Bool
   }
 
 model : Model
@@ -57,8 +55,12 @@ model =
        cells = [],
        availableCellNumbers = Array.initialize 32 (\n -> n),
        won = False
-     }
+     },
+     loaded = False
   }
+
+defaultModel : Model
+defaultModel = model
 
 cells : List (Int, Int)
 cells =
@@ -86,6 +88,7 @@ type Msg =
   | MarkCells Int
   | NewEntryRandom Int
   | NewRandomCell (List (Int, Int)) Int
+  | ResetBoard
   | GetCells (List (Int, Int))
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -93,23 +96,17 @@ update msg model =
   case msg of
     CallNewNumber ->
       let
-        randomM = Array.get model.entryRandom model.availableEntries
-        random = (Maybe.withDefault 0 randomM)
-        newEntryList = List.reverse (newEntry random :: (List.reverse model.entries))
-        newAvailableEntries = removeFromArray random model.availableEntries
-
-        mor1 = Debug.log "entries" model.availableEntries
-        mor0 = Debug.log "entryRandom" model.entryRandom
-        mor2 = Debug.log "random" random
-        mor3 = Debug.log "3ntries" newAvailableEntries
-        mor4 = Debug.log "-----------" ""
+        randomNumber = model.entryRandom
+        entriesLeftToChooseFrom = model.availableEntries
+        (entryValue, newAvailableEntries) = pickMemberAndRemoveIt randomNumber entriesLeftToChooseFrom
+        newEntryList = List.reverse (newEntry entryValue :: (List.reverse model.entries))
       in
         { model
         | entries
           = newEntryList
           , availableEntries = newAvailableEntries
         }
-        |> update (MarkCells random)
+        |> update (MarkCells entryValue)
     MarkCells withValue ->
       let
         newCells = List.map (markSelected withValue) model.board.cells
@@ -122,23 +119,27 @@ update msg model =
           }
         , Random.generate NewEntryRandom (Random.int 0 ((Array.length model.availableEntries) - 1))
         )
+    ResetBoard ->
+      defaultModel
+      |> update (GetCells cells)
     GetCells cells ->
       case List.head cells of
         Just val ->
           let
-            cellRandomM = Array.get model.cellRandom model.board.availableCellNumbers
-            cellRandom = Maybe.withDefault 0 cellRandomM
-            newCells = List.append model.board.cells [(makeCell cellRandom val)]
-            newAvailableCellNumbers = removeFromArray cellRandom model.board.availableCellNumbers
-            tail = Maybe.withDefault [] (List.tail cells)
+            randomNumber = model.cellRandom
+            cellsLeftToChooseFrom = model.board.availableCellNumbers
+            (cellValue, newAvailableCellNumbers) = pickMemberAndRemoveIt randomNumber cellsLeftToChooseFrom
+            newBuiltCells = List.append model.board.cells [(makeCell cellValue val)]
+            cellsLeftToProcess = Maybe.withDefault [] (List.tail cells)
           in
             ( { model | board =
-                { cells = newCells
+                { cells = newBuiltCells
                 , won = model.board.won
                 , availableCellNumbers = newAvailableCellNumbers
                 }
+                , loaded = True
             }
-            , Random.generate (NewRandomCell tail) (Random.int 0 ((Array.length newAvailableCellNumbers) - 1))
+            , Random.generate (NewRandomCell cellsLeftToProcess) (Random.int 0 ((Array.length newAvailableCellNumbers) - 1))
             )
         Nothing ->
           ( model, Cmd.none )
@@ -148,21 +149,43 @@ update msg model =
       { model | cellRandom = r }
       |> update (GetCells cells)
 
+removeFromList : Int -> List a -> List a
+removeFromList i xs =
+  (List.take i xs) ++ (List.drop (i+1) xs)
+
+removeFromArray : Int -> Array a -> Array a
+removeFromArray i =
+  Array.toList >> removeFromList i >> Array.fromList
+
+pickMemberAndRemoveIt : Int -> Array (Int) -> (Int, Array (Int))
+pickMemberAndRemoveIt nth array =
+  let
+    numberPacked = Array.get nth array
+    numberUnpacked = Maybe.withDefault 0 numberPacked
+    newArray = removeFromArray nth array
+  in
+    (numberUnpacked, newArray)
+
 markSelected : Int -> Cell -> Cell
 markSelected ifValue cell = { cell | selected = (cell.value == ifValue) || cell.selected  }
 
 newEntry : Int -> Entry
 newEntry value = { id = value, value = (toString value) }
 
+resetBoard : Model -> Model
+resetBoard model = defaultModel
+
+rotate : List (Cell) -> List (Cell)
+rotate list = list
+
 hasBingo : List (Cell) -> Bool
 hasBingo cells =
   let
     hasRowBingo = checkRows cells 0
-    hasColumnBingo = checkColumns cells 0
+    hasColumnBingo = checkColumns (rotate cells) 0
   in
     hasRowBingo
     || hasColumnBingo
---  || hasDiagonalBingo
 
 trimIntoSelected : Cell -> Bool
 trimIntoSelected cell = cell.selected
@@ -193,35 +216,32 @@ checkColumns cells depth =
       val ->
         columnHasBingo || (checkColumns cells (val + 1))
 
-removeFromArray : Int -> Array a -> Array a
-removeFromArray i a =
-  let
-    index = if i == 0 then i else (i - 1)
-    a1 = Array.slice 0 index a
-    a2 = Array.slice (index + 1) (Array.length a) a
-  in
-    Array.append a1 a2
-
 -- VIEW
 -- Html is defined as: elem [ attribs ][ children ]
 -- CSS can be applied via class names
 view : Model -> Html Msg
 view model =
   div [ class "wrapper" ]
-    [ div [ class "wrapper-row" ] [ createBoardButton () ]
-    , div [ class "wrapper-row" ] [ callNumberButton () ]
+    [ div [ class "wrapper-row" ] [ createBoardButton model.loaded ]
+    , div [ class "wrapper-row" ] [ callNumberButton model.loaded ]
     , div [ class "wrapper-row" ] [ calledNumbers model.entries ]
     , div [ class "wrapper-row" ] [ bingoBoard model.board ]
     , div [ class "wrapper-row" ] [ won model.board ]
     ]
 
-createBoardButton : () -> Html Msg
-createBoardButton () =
-  button [ onClick (GetCells cells), class "call-number-button" ] [ text "Create board" ]
+createBoardButton : Bool -> Html Msg
+createBoardButton loaded =
+  if not loaded then
+    button [ onClick (GetCells cells), class "call-number-button" ] [ text "Create board" ]
+  else
+    button [ onClick (ResetBoard), class "call-number-button" ] [ text "Reset board" ]
 
-callNumberButton : () -> Html Msg
-callNumberButton () =
-  button [ onClick CallNewNumber, class "call-number-button" ] [ text "Get the next number" ]
+callNumberButton : Bool -> Html Msg
+callNumberButton loaded =
+  if loaded then
+    button [ onClick CallNewNumber, class "call-number-button" ] [ text "Get the next number" ]
+  else
+    button [ disabled True ] [ text "Get the next number" ]
 
 renderNumber : Entry -> Html a
 renderNumber entry =
@@ -254,9 +274,10 @@ bingoBoard board =
 
 won : Board -> Html a
 won board =
-  div [ class "won" ] [ text (toString board.won) ]
+  div [ class "won" ] [ text (if board.won then "Voitit!" else "Et ole vielä voittanut") ]
 
 -- Subscriptions
+subscriptions : a -> Sub msg
 subscriptions x =
     Sub.none
 
